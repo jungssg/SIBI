@@ -1,0 +1,25 @@
+# Python Virtual Environment
+env/
+venv/
+.venv/
+Moonchul/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# API Keys
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+client_secret*.json
+credentials.json
+token.json
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
