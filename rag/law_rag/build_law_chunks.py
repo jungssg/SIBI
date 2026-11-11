@@ -418,8 +418,23 @@ def detect_source_label(lines):
 
 def main():
     ap = argparse.ArgumentParser(description="도로교통법 PDF -> RAG 청크")
-    ap.add_argument("pdf")
-    ap.add_argument("out", nargs="?", default=str(Path(__file__).resolve().parent))
+    BASE_DIR = Path(__file__).resolve().parents[2]
+
+    DEFAULT_PDF = BASE_DIR / "raw" / "pdf" / "도로교통법(법률)(제22067호)(20261013).pdf"
+    DEFAULT_OUT = BASE_DIR / "rag" / "law_rag"
+
+    ap.add_argument(
+        "pdf",
+        nargs="?",
+        default=str(DEFAULT_PDF)
+    )
+
+    ap.add_argument(
+        "out",
+        nargs="?",
+        default=str(DEFAULT_OUT)
+    )
+    
     ap.add_argument("--max-chars", type=int, default=2000, help="청크 최대 글자 수(기본 2000)")
     ap.add_argument("--include-addenda", action="store_true", help="부칙도 포함(기본 제외)")
     args = ap.parse_args()

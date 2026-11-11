@@ -5,9 +5,18 @@ accident-type code pages (보N / 차N-N / 거N-N standalone line near top).
 Output: chunks.jsonl, chunks/*.md (YAML front matter), index.md
 """
 import sys, os, re, json, shutil, pypdf
+from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
-SRC, OUT = sys.argv[1], sys.argv[2]
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+
+SRC = BASE_DIR / "raw" / "pdf" / "230630_자동차사고 과실비율 인정기준_최종.pdf"
+OUT = BASE_DIR / "rag" / "common_rag"
+
+SRC = str(SRC)
+OUT = str(OUT)
+
 MAX_CHARS = 7000
 DOC = "자동차사고 과실비율 인정기준 (2023.6.30)"
 

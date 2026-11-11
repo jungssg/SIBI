@@ -355,9 +355,27 @@ def build(source, out):
 
 
 def main():
+    BASE_DIR = Path(__file__).resolve().parents[2]
+
+    DEFAULT_PDF = BASE_DIR / "raw" / "pdf" / "250624_2차로형 회전교차로사고 과실비율 비정형기준.pdf"
+    DEFAULT_OUT = BASE_DIR / "rag" / "roundabout_rag"
+
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source_pdf", type=Path)
-    parser.add_argument("output_directory", type=Path)
+
+    parser.add_argument(
+        "source_pdf",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_PDF
+    )
+
+    parser.add_argument(
+        "output_directory",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_OUT
+    )
+
     args = parser.parse_args()
     build(args.source_pdf, args.output_directory.resolve())
 

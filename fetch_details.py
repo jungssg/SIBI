@@ -9,16 +9,20 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "raw" / "hanmoonchul"
+
 load_dotenv(BASE_DIR / "env" / ".env")
+
+
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 if not API_KEY:
     raise RuntimeError("env/.env에 YOUTUBE_API_KEY를 설정하세요.")
 
 youtube = build("youtube", "v3", developerKey=API_KEY)
 
-LIST_PATH = "uploads_list_15303-28817.json"             # video_id 목록 (channel_videos.py 결과)
-DETAIL_JSONL = "video_details.jsonl"        # 진행 상황 저장 (한 줄에 영상 1개)
-DETAIL_CSV = "hanmoonchul_videos.csv"       # 최종 CSV
+LIST_PATH =  DATA_DIR /"uploads_list_15303-28817.json"             # video_id 목록 (channel_videos.py 결과)
+DETAIL_JSONL =  DATA_DIR /"video_details.jsonl"        # 진행 상황 저장 (한 줄에 영상 1개)
+DETAIL_CSV =  DATA_DIR /"hanmoonchul_videos.csv"       # 최종 CSV
 
 
 def parse_duration(s):

@@ -12,6 +12,10 @@ from googleapiclient.errors import HttpError
 
 # ---------- 설정 ----------
 BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "raw" / "hanmoonchul"
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 load_dotenv(BASE_DIR / "env" / ".env")
 
 API_KEY = os.getenv("YOUTUBE_API_KEY")
@@ -22,10 +26,10 @@ if not API_KEY or not CHANNEL_ID:
 
 youtube = build("youtube", "v3", developerKey=API_KEY)
 
-RECENT_PATH = "list_UU.json"             # 1단계: 재생목록으로 받은 최신 20,000개
-OLD_PATH = "older_videos.json"           # 2단계: 검색으로 받은 과거 영상 (진행 상황 포함)
-LIST_PATH = "uploads_list.json"          # 병합 결과
-DETAIL_PATH = "hanmuncheol_videos.csv"   # 3단계: 상세 정보
+RECENT_PATH = DATA_DIR / "list_UU.json"             # 1단계: 재생목록으로 받은 최신 20,000개
+OLD_PATH = DATA_DIR / "older_videos.json"           # 2단계: 검색으로 받은 과거 영상 (진행 상황 포함)
+LIST_PATH = DATA_DIR / "uploads_list.json"          # 병합 결과
+DETAIL_PATH = DATA_DIR / "hanmoonchul_videos.csv"   # 3단계: 상세 정보
 
 CHANNEL_START = datetime(2018, 9, 24, tzinfo=timezone.utc)  # 첫 영상(2018-09-25) 하루 앞
 STEP_DAYS = 7
