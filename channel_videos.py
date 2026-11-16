@@ -1,7 +1,5 @@
 import os
-import csv
 import json
-import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -11,7 +9,16 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # ---------- 설정 ----------
-BASE_DIR = Path(__file__).resolve().parent
+def find_project_root():
+    """이 파일이 어디에 있든(프로젝트 루트, scripts/collect/ 등) raw/ 폴더가 있는 프로젝트 루트를 찾는다."""
+    here = Path(__file__).resolve().parent
+    for p in (here, *here.parents):
+        if (p / "raw").is_dir():
+            return p
+    return here
+
+
+BASE_DIR = find_project_root()
 DATA_DIR = BASE_DIR / "raw" / "hanmoonchul"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -26,10 +33,11 @@ if not API_KEY or not CHANNEL_ID:
 
 youtube = build("youtube", "v3", developerKey=API_KEY)
 
+# 모든 출력은 raw/hanmoonchul/ 아래에 저장된다.
 RECENT_PATH = DATA_DIR / "list_UU.json"             # 1단계: 재생목록으로 받은 최신 20,000개
 OLD_PATH = DATA_DIR / "older_videos.json"           # 2단계: 검색으로 받은 과거 영상 (진행 상황 포함)
-LIST_PATH = DATA_DIR / "uploads_list.json"          # 병합 결과
-DETAIL_PATH = DATA_DIR / "hanmoonchul_videos.csv"   # 3단계: 상세 정보
+LIST_PATH = DATA_DIR / "uploads_list.json"          # 병합 결과 (fetch_details.py 가 이 파일을 읽는다)
+# 상세 정보(3단계)는 fetch_details.py 가 담당한다: video_details.jsonl, hanmoonchul_videos_detail.csv
 
 CHANNEL_START = datetime(2018, 9, 24, tzinfo=timezone.utc)  # 첫 영상(2018-09-25) 하루 앞
 STEP_DAYS = 7
@@ -171,52 +179,6 @@ def merge_lists():
     return videos
 
 
-# ---------- 3단계: 상세 정보 ----------
-def parse_duration(s):
-    m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", s)
-    h, mi, sec = (int(x) if x else 0 for x in m.groups())
-    return h * 3600 + mi * 60 + sec
-
-
-def fetch_video_details(video_ids):
-    rows = []
-    for i in range(0, len(video_ids), 50):
-        chunk = video_ids[i:i + 50]
-        res = youtube.videos().list(
-            part="snippet,statistics,contentDetails", id=",".join(chunk)
-        ).execute()
-        for v in res["items"]:
-            sn, st = v["snippet"], v.get("statistics", {})
-            rows.append({
-                "video_id": v["id"],
-                "title": sn["title"],
-                "published_at": sn["publishedAt"],
-                # "duration_sec": parse_duration(v["contentDetails"]["duration"]),
-                # "views": st.get("viewCount", 0),
-                # "likes": st.get("likeCount", 0),
-                # "comments": st.get("commentCount", 0),
-                "tags": "|".join(sn.get("tags", [])),
-                "description": sn.get("description", ""),
-                "url": f"https://www.youtube.com/watch?v={v['id']}",
-            })
-        print(f"상세 수집: {min(i + 50, len(video_ids))}/{len(video_ids)}")
-    missing = len(video_ids) - len(rows)
-    if missing:
-        print(f"참고: {missing}개는 비공개/삭제 등으로 가져오지 못했습니다.")
-    return rows
-
-
-def save_csv(rows, path):
-    if not rows:
-        print("저장할 데이터가 없습니다.")
-        return
-    with open(path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(rows)
-    print(f"{path} 저장 완료 ({len(rows)}개)")
-
-
 # ---------- 실행 ----------
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -236,13 +198,14 @@ if __name__ == "__main__":
         done = fetch_older(CHANNEL_START, oldest_collected, step_days=STEP_DAYS)
         merge_lists()                       # 중간 상태라도 합쳐서 저장
         if done:
-            print("과거 영상 수집 완료! 이제 `python channel_videos.py`로 상세 조회를 하세요.")
+            print("과거 영상 수집 완료! 이제 `python fetch_details.py`로 상세 조회를 하세요.")
 
-    else:                                   # 상세 조회
-        if not os.path.exists(LIST_PATH):
-            raise SystemExit("목록이 없습니다. 먼저 `python channel_videos.py older`를 실행하세요.")
-        with open(LIST_PATH, encoding="utf-8") as f:
-            videos = json.load(f)
-        print(f"{LIST_PATH}에서 {len(videos)}개 불러옴")
-        rows = fetch_video_details([v["video_id"] for v in videos])
-        save_csv(rows, DETAIL_PATH)
+    else:
+        # 상세 조회는 fetch_details.py 로 일원화했다.
+        # (이전에는 이 파일도 hanmoonchul_videos.csv 를 같은 이름으로 써서 서로 덮어쓸 수 있었다)
+        raise SystemExit(
+            "사용법:\n"
+            "  python channel_videos.py list    # 최신 20,000개 목록 + 병합\n"
+            "  python channel_videos.py older   # 과거 영상 검색(매일 반복) + 병합\n"
+            "상세 정보 조회는 `python fetch_details.py` 를 실행하세요."
+        )

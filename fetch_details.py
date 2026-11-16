@@ -8,7 +8,16 @@ from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-BASE_DIR = Path(__file__).resolve().parent
+def find_project_root():
+    """이 파일이 어디에 있든(프로젝트 루트, scripts/collect/ 등) raw/ 폴더가 있는 프로젝트 루트를 찾는다."""
+    here = Path(__file__).resolve().parent
+    for p in (here, *here.parents):
+        if (p / "raw").is_dir():
+            return p
+    return here
+
+
+BASE_DIR = find_project_root()
 DATA_DIR = BASE_DIR / "raw" / "hanmoonchul"
 
 load_dotenv(BASE_DIR / "env" / ".env")
@@ -20,9 +29,12 @@ if not API_KEY:
 
 youtube = build("youtube", "v3", developerKey=API_KEY)
 
-LIST_PATH =  DATA_DIR /"uploads_list_15303-28817.json"             # video_id 목록 (channel_videos.py 결과)
-DETAIL_JSONL =  DATA_DIR /"video_details.jsonl"        # 진행 상황 저장 (한 줄에 영상 1개)
-DETAIL_CSV =  DATA_DIR /"hanmoonchul_videos.csv"       # 최종 CSV
+# 모든 입출력은 raw/hanmoonchul/ 아래
+LIST_PATH = DATA_DIR / "uploads_list.json"                  # video_id 목록 (channel_videos.py 병합 결과)
+LEGACY_LIST_PATH = DATA_DIR / "uploads_list_15303-28817.json"  # 병합 전 최신 20,000개 목록 (병합 파일이 없을 때만 대체 사용)
+DETAIL_JSONL = DATA_DIR / "video_details.jsonl"             # 진행 상황 저장 (한 줄에 영상 1개)
+MISSING_PATH = DATA_DIR / "video_details_missing.txt"       # 비공개/삭제 등으로 받지 못한 video_id (다시 요청하지 않음)
+DETAIL_CSV = DATA_DIR / "hanmoonchul_videos_detail.csv"     # 최종 CSV
 
 
 def parse_duration(s):
@@ -60,13 +72,33 @@ def load_done_ids():
     return done
 
 
+def load_missing_ids():
+    if not os.path.exists(MISSING_PATH):
+        return set()
+    with open(MISSING_PATH, encoding="utf-8") as f:
+        return {line.strip() for line in f if line.strip()}
+
+
+def resolve_list_path():
+    if os.path.exists(LIST_PATH):
+        return LIST_PATH
+    if os.path.exists(LEGACY_LIST_PATH):
+        print(f"[주의] {LIST_PATH.name} 이 없어 최신분 목록({LEGACY_LIST_PATH.name})만 사용합니다.")
+        print("       과거 영상까지 받으려면 먼저 `python channel_videos.py older` 로 목록을 병합하세요.")
+        return LEGACY_LIST_PATH
+    raise SystemExit(f"목록이 없습니다: {LIST_PATH}\n먼저 `python channel_videos.py list` 또는 `older` 를 실행하세요.")
+
+
 def fetch_details():
-    with open(LIST_PATH, encoding="utf-8") as f:
+    list_path = resolve_list_path()
+    with open(list_path, encoding="utf-8") as f:
         all_ids = [v["video_id"] for v in json.load(f)]
 
     done = load_done_ids()
-    todo = [i for i in all_ids if i not in done]
-    print(f"전체 {len(all_ids)}개 / 이미 완료 {len(done)}개 / 남은 {len(todo)}개")
+    missing = load_missing_ids()
+    todo = [i for i in all_ids if i not in done and i not in missing]
+    print(f"목록 {list_path.name}: 전체 {len(all_ids)}개 / 이미 완료 {len(done)}개 / "
+          f"받을 수 없음(기록) {len(missing & set(all_ids))}개 / 남은 {len(todo)}개")
 
     with open(DETAIL_JSONL, "a", encoding="utf-8") as out:
         for i in range(0, len(todo), 50):
@@ -80,9 +112,15 @@ def fetch_details():
                 print(f"중단: {e.resp.status} {str(e)[:150]}")
                 print("같은 명령을 다시 실행하면 이어서 진행됩니다.")
                 break
+            got = set()
             for v in res["items"]:
                 out.write(json.dumps(to_row(v), ensure_ascii=False) + "\n")
+                got.add(v["id"])
             out.flush()
+            lost = [vid for vid in chunk if vid not in got]  # 비공개/삭제 등: API가 돌려주지 않음
+            if lost:
+                with open(MISSING_PATH, "a", encoding="utf-8") as mf:
+                    mf.write("\n".join(lost) + "\n")
             print(f"상세 수집: {min(i + 50, len(todo))}/{len(todo)}")
             time.sleep(0.3)
 
