@@ -1,10 +1,14 @@
 import json
 import pymupdf
+import os
+import base64
 
 from pathlib import Path
 from collections import defaultdict
 from typing import Literal
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+from openai import OpenAI
 
 
 # ==================================================
@@ -35,6 +39,25 @@ IMAGE_SCALE = 2.0
 
 # 테스트할 페이지 개수
 TEST_LIMIT = 5
+
+# ============================================================
+# 1-2. OpenAI API 환경변수 설정
+# ============================================================
+
+load_dotenv(ROOT / "env" / ".env")
+
+# OpenAI API 키
+API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not API_KEY:
+    raise ValueError("OPENAI_API_KEY 설정 에러")
+
+# OpenAI 클라이언트
+client = OpenAI(api_key=API_KEY)
+
+# Vision LLM 모델
+MODEL = "gpt-6-luna"
+
 
 # ==================================================
 # 2. page_manifest.json 불러오기
@@ -372,12 +395,83 @@ PDF 페이지 이미지에 포함된 사고유형별 기준을
 - 사고유형별 정보를 각각 독립적으로 반환한다.
 """
 
+# ============================================================
+# 9. Vision LLM 페이지별 분석 함수
+# ============================================================
 
+def extract_page_rules(image_path: Path, codes: list[str]) -> tuple[PageExtraction, object]:
+    """
+    하나의 PDF 페이지 이미지를 Vision LLM에 전달하과,
+    해당 페이지의 모든 사고유형을 JSON으로 추출한다.
 
+    예:
+    image_path = commoon_2023_page_0047.png
+    codes = ['보3', '보4']
 
+    API 호출 횟수: 1회
+    """
 
+    # 이미지 파일을 Base64 answkduffh qusghks
+    image_bytes = image_path.read_bytes()
 
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
 
+    # 사고유형 코드 목록을 프롬프트에 전달
+    codes_text = ", ".join(codes)
+
+    user_prompt = f"""
+    첨부된 PDF 페이지 이미지에서 다음 사고유형을 추출해.
+
+    추출 대상 사고유형 코드: {codes_text}
+
+    규칙:
+    1. 지정된 사고유형만 추출한다.
+    2. 사고유형마다 기본 과실비율과 수정요소를 독립적으로 추출한다.
+    3. 서로 다른 사고유형의 내용을 혼합하지 않는다.
+    4. 지정된 사고유형이 이미지에서 확인되지 않으면 생성하지 않는다.
+    5. 확인할 수 없는 사고유형은 page_uncertainties에 기록한다.
+    """
+
+    # Vision LLM 호출
+    response = client.responses.parse(
+        model = MODEL,
+        reasoning={
+            'effort': 'low'
+        },
+        input = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": user_prompt
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": (f"data:image/png;base64,{base64_image}"),
+                        "detail": "high"
+                    }
+                ]
+                
+            }
+        ],
+        text_format=PageExtraction
+    )
+
+    # Pydantic 모델로 변환된 결과
+    result = response.output_parsed
+
+    if result is None:
+        raise RuntimeError(
+            "Vision LLM 구조화 결과가 없습니다."
+            f"응답 상태: {response.status}"
+        )
+    
+    return result, response
 
 
 
@@ -385,6 +479,7 @@ PDF 페이지 이미지에 포함된 사고유형별 기준을
 # 4. 테스트 실행
 # 2단계 테스트: PDF 페이지 이비지 변환
 # 3단계 테스트: Pydantic 출력 구조 확인
+# 4단계 테스트: 페이지별 Vision LLM API 호출
 # ============================================================
 
 if __name__ == "__main__":
@@ -468,3 +563,79 @@ if __name__ == "__main__":
     )
 
     print("\n=== 3단계 테스트 완료 ===")
+
+    # 4단계 테스트
+    print("\n=== 4단계: Vision LLM 페이지별 분석 ===")
+
+    # target_page 디버깅
+    print("\n=== 47페이지 검색 디버깅 ===")
+
+    print("pages 자료형:", type(pages))
+    print("pages 개수:", len(pages))
+
+    for page in pages:
+        if str(page["pdf_page"]) == "47":
+
+            print("찾은 페이지:", page)
+            print("corpus:", repr(page["corpus"]))
+            print("pdf_page:", repr(page["pdf_page"]))
+            print("pdf_page 자료형:", type(page["pdf_page"]))
+
+    # PDF 47페이지에 해당하는 데이터 선택(보3, 보4)
+    target_page = next(
+        (
+            page
+            for page in pages
+            if (
+                page["corpus"] == "common_2023"
+                and page["pdf_page"] == 47
+            )
+        ),
+        None
+    )
+
+    if target_page is None:
+        raise ValueError("PDF 47페이지 데이터를 찾지 못했습니다.")
+
+    # 47페이지 PNG 이미지
+    image_path = IMAGE_DIR / "common_2023_page_0047.png"
+
+    if not image_path.is_file():
+        raise FileNotFoundError("이미지 파일이 없습니다.")
+
+    # 한 페이지 이미지를 전달하고
+    # 보3, 보4를 동시에 추출
+    result, response = extract_page_rules(
+        image_path=image_path,
+        codes= target_page["codes"]
+    )
+
+    # 추출 결과
+    print("\n=== Vision LLM JSON 결과 ===")
+
+    print(result.model_dump_json(indent=2))
+
+    # 요청한 사고유형과 실제 추출된 사고유형 비교
+    expected_codes = set(target_page["codes"])
+
+    extracted_codes = {
+        rule.accident_code for rule in result.accidents
+    }
+
+    print("\n=== 사고유형 코드 확인 ===")
+    print(f"요청 코드: {sorted(expected_codes)}")
+    print(f"추출 코드: {sorted(extracted_codes)}")
+
+    if expected_codes == extracted_codes:
+        print("[검증 통과] 사고유형 코드 일치")
+    else:
+        print("[검증 실패] 사고유형 코드 불일치")
+
+    # 토큰사용량
+    if response.usage:
+        print("\n=== 토큰 사용량 ===")
+        print(f"입력 토큰: {response.usage.input_tokens}")
+        print(f"출력 토큰: {response.usage.output_tokens}")
+        print(f"총 토큰: {response.usage.total_tokens}")
+
+    print("\n=== 4단계 테스트 완료 ===")
